@@ -1,7 +1,3 @@
-Berikut adalah contoh isi `README.md` untuk proyek Laravel Anda, lengkap dengan instruksi setup dan informasi akun admin dari seeder `AdminUserSeeder`.
-
----
-
 ## 🛠️ Laravel Project Setup
 
 Proyek ini adalah aplikasi Laravel. Ikuti panduan di bawah untuk mengatur lingkungan pengembangan lokal Anda.
