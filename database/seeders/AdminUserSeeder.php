@@ -23,18 +23,5 @@ class AdminUserSeeder extends Seeder
                 'password' => Hash::make('password123'),
             ]
         );
-        User::updateOrCreate(
-            ['email' => 'employee@example.com'],
-            [
-                'first_name' => 'Employee',
-                'last_name' => 'Utama',
-                'phone_number' => '08123456789',
-                'address' => 'Jl. Admin No.1',
-                'gender' => 'Male',
-                'dob' => '1990-01-01',
-                'role' => 'employee',
-                'password' => Hash::make('password123'),
-            ]
-        );
     }
 }

@@ -15,10 +15,7 @@ class AdminController extends Controller
      */
     public function index()
     {
-        $leaves = Leave::with('employee')
-            ->orderBy('start_date', 'desc')
-            ->paginate(10);
-        return view('admins.index', compact('leaves'));
+        //
     }
 
     /**
@@ -26,8 +23,7 @@ class AdminController extends Controller
      */
     public function create()
     {
-        $pegawai = Employee::get();
-        return view('admins.create', compact('pegawai'));
+        //
     }
 
     /**
@@ -35,15 +31,7 @@ class AdminController extends Controller
      */
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'employee_id' => 'required',
-            'reason' => 'required',
-            'start_date' => 'required',
-            'end_date' => 'required'
-        ]);
-
-        Leave::create($validated);
-        return redirect()->route('admins.index')->with('success', 'Cuti berhasil ditambahkan.');
+        //
     }
 
     /**
@@ -51,8 +39,7 @@ class AdminController extends Controller
      */
     public function show(string $id)
     {
-        $leave = Leave::find($id);
-        return view('Admins.show', compact('leave'));
+        //
     }
 
     /**
