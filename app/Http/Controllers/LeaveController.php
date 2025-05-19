@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Employee;
 use App\Models\Leave;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -61,18 +62,48 @@ class LeaveController extends Controller
                 'end_date.after_or_equal' => 'Tanggal selesai harus sama atau setelah tanggal mulai.',
             ]);
 
-            Leave::create($validated);
+            $employee = Employee::findOrFail($validated['employee_id']);
+            $start = \Carbon\Carbon::parse($validated['start_date']);
+            $end = \Carbon\Carbon::parse($validated['end_date']);
+
+            // Validasi: tahun cuti harus tahun ini
+            $currentYear = now()->year;
+            if ($start->year != $currentYear || $end->year != $currentYear) {
+                return redirect()->back()->withInput()->withErrors([
+                    'start_date' => 'Cuti hanya bisa diajukan untuk tahun ini (' . $currentYear . ').',
+                ]);
+            }
+
+            // Validasi: tanggal sudah pernah diajukan?
+            $existingLeaves = Leave::where('employee_id', $employee->id)
+                ->where(function ($query) use ($start, $end) {
+                    $query->whereBetween('start_date', [$start, $end])
+                        ->orWhereBetween('end_date', [$start, $end])
+                        ->orWhere(function ($query) use ($start, $end) {
+                            $query->where('start_date', '<=', $start)->where('end_date', '>=', $end);
+                        });
+                })->exists();
+
+            if ($existingLeaves) {
+                return redirect()->back()->withInput()->withErrors([
+                    'start_date' => 'Tanggal cuti ini sudah diajukan sebelumnya.',
+                ]);
+            }
+
+            // Hitung hari kerja
+            $daysRequested = $start->diffInDaysFiltered(fn($date) => $date->isWeekday(), $end) + 1;
+
+            if ($daysRequested > $employee->remaining_leave_quota) {
+                return redirect()->back()->withInput()->withErrors([
+                    'start_date' => "Anda hanya bisa mengajukan maksimal {$employee->remaining_leave_quota} hari.",
+                ]);
+            }
+
+            Leave::create(array_merge($validated, ['total_days' => $daysRequested]));
 
             return redirect()->route('leaves.index')->with('success', 'Cuti berhasil ditambahkan.');
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            throw $e;
         } catch (\Exception $e) {
-            Log::error('Gagal menambahkan cuti: ' . $e->getMessage(), [
-                'request_data' => $request->all(),
-                'exception' => $e,
-            ]);
-
-            return redirect()->back()->with('error', 'Gagal menambahkan cuti. Silakan coba lagi atau hubungi administrator.');
+            return redirect()->back()->with('error', 'Gagal menambahkan cuti. Silakan coba lagi.');
         }
     }
 
@@ -82,8 +113,9 @@ class LeaveController extends Controller
      * @param \App\Models\Leave $leave
      * @return \Illuminate\View\View
      */
-    public function show(Leave $leave)
+    public function show($id)
     {
+        $leave = Leave::with('employee')->findOrFail($id);
         $pegawai = Employee::select('id', 'first_name', 'last_name')->get();
         return view('admins.show', compact('leave', 'pegawai'));
     }
@@ -107,7 +139,7 @@ class LeaveController extends Controller
      * @param \App\Models\Leave $leave
      * @return \Illuminate\Http\RedirectResponse
      */
-    public function update(Request $request, Leave $leave)
+    public function update(Request $request, $id)
     {
         try {
             $validated = $request->validate([
@@ -129,18 +161,52 @@ class LeaveController extends Controller
                 'end_date.after_or_equal' => 'Tanggal selesai harus sama atau setelah tanggal mulai.',
             ]);
 
-            $leave->update($validated);
+            $leave = Leave::findOrFail($id);
+            $employee = Employee::findOrFail($validated['employee_id']);
+
+            $start = \Carbon\Carbon::parse($validated['start_date']);
+            $end = \Carbon\Carbon::parse($validated['end_date']);
+
+            // Validasi: hanya tahun ini
+            $currentYear = now()->year;
+            if ($start->year != $currentYear || $end->year != $currentYear) {
+                return redirect()->back()->withInput()->withErrors([
+                    'start_date' => 'Cuti hanya bisa diajukan untuk tahun ini (' . $currentYear . ').',
+                ]);
+            }
+
+            // Validasi: tanggal sudah diajukan sebelumnya, kecuali yang sedang diupdate
+            $existingLeaves = Leave::where('employee_id', $employee->id)
+                ->where('id', '!=', $leave->id)
+                ->where(function ($query) use ($start, $end) {
+                    $query->whereBetween('start_date', [$start, $end])
+                        ->orWhereBetween('end_date', [$start, $end])
+                        ->orWhere(function ($query) use ($start, $end) {
+                            $query->where('start_date', '<=', $start)->where('end_date', '>=', $end);
+                        });
+                })->exists();
+
+            if ($existingLeaves) {
+                return redirect()->back()->withInput()->withErrors([
+                    'start_date' => 'Tanggal cuti ini sudah diajukan sebelumnya.',
+                ]);
+            }
+
+            // Kembalikan jatah cuti lama sebelum dihitung ulang
+            $adjustedQuota = $employee->remaining_leave_quota + $leave->total_days;
+            $daysRequested = $start->diffInDaysFiltered(fn($date) => $date->isWeekday(), $end) + 1;
+
+            if ($daysRequested > $adjustedQuota) {
+                return redirect()->back()->withInput()->withErrors([
+                    'start_date' => "Anda hanya bisa mengajukan maksimal $adjustedQuota hari.",
+                ]);
+            }
+
+            $leave->update(array_merge($validated, ['total_days' => $daysRequested]));
 
             return redirect()->route('leaves.index')->with('success', 'Cuti berhasil diperbarui.');
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            throw $e;
         } catch (\Exception $e) {
-            Log::error('Gagal memperbarui cuti: ' . $e->getMessage(), [
-                'request_data' => $request->all(),
-                'exception' => $e,
-            ]);
-
-            return redirect()->back()->with('error', 'Gagal memperbarui cuti. Silakan coba lagi atau hubungi administrator.');
+            return redirect()->back()->with('error', 'Gagal memperbarui cuti. Silakan coba lagi.');
         }
     }
 
@@ -150,14 +216,22 @@ class LeaveController extends Controller
      * @param \App\Models\Leave $leave
      * @return \Illuminate\Http\RedirectResponse
      */
-    public function destroy(Leave $leave)
+    public function destroy($id): RedirectResponse
     {
         try {
+            $leave = Leave::find($id);
+
+            if (!$leave) {
+                return redirect()->route('leaves.index')->with('error', 'Data cuti tidak ditemukan.');
+            }
+
+            Log::info('Menghapus cuti:', ['leave_id' => $leave->id]);
+
             $leave->delete();
             return redirect()->route('leaves.index')->with('success', 'Cuti berhasil dihapus.');
         } catch (\Exception $e) {
             Log::error('Gagal menghapus cuti: ' . $e->getMessage(), [
-                'leave_id' => $leave->id,
+                'leave_id' => $id,
                 'exception' => $e,
             ]);
 
